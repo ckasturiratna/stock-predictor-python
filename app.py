@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 import yfinance as yf
 import numpy as np
-from sklearn.linear_model import LinearRegression
+from prophet import Prophet
+import pandas as pd
 
 app = FastAPI()
 
@@ -14,20 +15,31 @@ def home():
 # ---------------------------------------------------------
 @app.get("/predict/{ticker}")
 def predict(ticker: str):
-    data = yf.download(ticker, period="6mo")["Close"]
-
+    # Download more data for Prophet (needs seasonality)
+    data = yf.download(ticker, period="5y")
+    
     if len(data) < 20:
         return {"error": "Not enough data"}
 
-    X = np.arange(len(data)).reshape(-1, 1)
-    y = data.values
+    # Prepare data for Prophet
+    df = data.reset_index()
+    df = df[["Date", "Close"]]
+    df.columns = ["ds", "y"]
+    
+    # Remove timezone info if present, Prophet can be picky
+    df["ds"] = df["ds"].dt.tz_localize(None)
 
-    model = LinearRegression().fit(X, y)
-    next_day = model.predict([[len(data) + 1]])
+    m = Prophet()
+    m.fit(df)
+    
+    future = m.make_future_dataframe(periods=1)
+    forecast = m.predict(future)
+    
+    next_day_prediction = forecast.iloc[-1]["yhat"]
 
     return {
         "ticker": ticker.upper(),
-        "predicted_price": float(next_day[0])
+        "predicted_price": float(next_day_prediction)
     }
 
 # ---------------------------------------------------------
